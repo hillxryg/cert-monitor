@@ -15,9 +15,20 @@ class Campaign extends Model
     use HasFactory;
 
     protected $fillable = [
-        'instructor_id', 'title', 'description', 'platform_name', 'join_code',
-        'required_completion_percent', 'min_integrity_score', 'status',
-        'starts_at', 'ends_at',
+        'instructor_id',
+        'title',
+        'description',
+        'platform_name',
+        'join_code',
+        'required_completion_percent',
+        'min_integrity_score',
+        'status',
+        'target_url_pattern',
+        'max_playback_speed',
+        'allow_muted_playback',
+        'max_skip_seconds',
+        'starts_at',
+        'ends_at',
     ];
 
     protected function casts(): array
@@ -27,6 +38,9 @@ class Campaign extends Model
             'ends_at' => 'datetime',
             'required_completion_percent' => 'integer',
             'min_integrity_score' => 'integer',
+            'max_playback_speed' => 'float',
+            'allow_muted_playback' => 'boolean',
+            'max_skip_seconds' => 'integer',
         ];
     }
 
@@ -35,6 +49,13 @@ class Campaign extends Model
         static::creating(function (Campaign $campaign) {
             $campaign->join_code ??= static::generateJoinCode();
         });
+    }
+
+    public function isOpen(): bool
+    {
+        return $this->status === 'active'
+            && ($this->starts_at === null || $this->starts_at->isPast())
+            && ($this->ends_at === null || $this->ends_at->isFuture());
     }
 
     public static function generateJoinCode(): string
