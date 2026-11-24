@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Cert Monitor",
+  "version": "0.1.0",
+  "description": "Verifies that you genuinely watch videos and read lessons for your certification campaigns.",
+  "action": {
+    "default_title": "Cert Monitor",
+    "default_popup": "src/popup/popup.html"
+  },
+  "background": {
+    "service_worker": "src/background/service-worker.ts",
+    "type": "module"
+  },
+  "permissions": ["storage", "alarms", "activeTab", "tabs"],
+  "host_permissions": ["http://127.0.0.1:8000/*", "https://*/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://*/*"],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}
