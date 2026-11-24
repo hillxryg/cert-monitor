@@ -1,52 +1,57 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Cert Monitor</title>
-    <link rel="stylesheet" href="./popup.css" />
-  </head>
-  <body>
-    <main class="app">
-      <header class="header">
-        <div class="brand"><span class="logo" aria-hidden="true">✓</span> Cert Monitor</div>
-        <button id="logout" class="link-button" type="button" hidden>Log out</button>
-      </header>
 
-      <p id="banner" class="banner" role="status" hidden></p>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cert Monitor</title>
+  <link rel="stylesheet" href="./popup.css" />
+</head>
 
-      <section id="view-login" hidden>
-        <form id="login-form" class="stack" autocomplete="on">
-          <p class="muted">Log in with your student account to start verified learning.</p>
-          <label class="field">
-            <span>Email</span>
-            <input id="login-email" type="email" autocomplete="username" required />
-          </label>
-          <label class="field">
-            <span>Password</span>
-            <input id="login-password" type="password" autocomplete="current-password" required />
-          </label>
-          <button id="login-submit" class="button" type="submit">Log in</button>
-        </form>
-      </section>
+<body>
+  <main class="app">
+    <header class="header">
+      <div class="brand"><span class="logo" aria-hidden="true">✓</span> Cert Monitor</div>
+      <button id="logout" class="link-button" type="button" hidden>Log out</button>
+    </header>
 
-      <section id="view-main" hidden>
-        <p id="who" class="muted"></p>
+    <p id="banner" class="banner" role="status" hidden></p>
 
-        <form id="join-form" class="join">
-          <label class="field grow">
-            <span>Join a campaign</span>
-            <input id="join-code" type="text" placeholder="Join code" maxlength="12" autocomplete="off" spellcheck="false" required />
-          </label>
-          <button id="join-submit" class="button" type="submit">Join</button>
-        </form>
+    <section id="view-login" hidden>
+      <form id="login-form" class="stack" autocomplete="on">
+        <p class="muted">Log in with your student account to start verified learning.</p>
+        <label class="field">
+          <span>Email</span>
+          <input id="login-email" type="email" autocomplete="username" required />
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="login-password" type="password" autocomplete="current-password" required />
+        </label>
+        <button id="login-submit" class="button" type="submit">Log in</button>
+      </form>
+    </section>
 
-        <h2 class="section-title">Your campaigns</h2>
-        <ul id="campaigns" class="campaigns"></ul>
-        <p id="empty" class="muted" hidden>No campaigns yet. Enter a join code above.</p>
-        <p id="queue-note" class="note" hidden></p>
-      </section>
-    </main>
-    <script type="module" src="./popup.ts"></script>
-  </body>
+    <section id="view-main" hidden>
+      <p id="who" class="muted"></p>
+
+      <form id="join-form" class="join">
+        <label class="field grow">
+          <span>Join a campaign</span>
+          <input id="join-code" type="text" placeholder="Join code" maxlength="12" autocomplete="off" spellcheck="false"
+            required />
+        </label>
+        <button id="join-submit" class="button" type="submit">Join</button>
+      </form>
+
+      <h2 class="section-title">Your campaigns</h2>
+      <p id="sync-note" class="sync-note" role="status" hidden></p>
+      <ul id="campaigns" class="campaigns"></ul>
+      <p id="empty" class="muted" hidden>No campaigns yet. Enter a join code above.</p>
+      <p id="queue-note" class="note" hidden></p>
+    </section>
+  </main>
+  <script type="module" src="./popup.ts"></script>
+</body>
+
 </html>

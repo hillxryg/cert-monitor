@@ -8,9 +8,29 @@ use App\Http\Resources\EnrollmentResource;
 use App\Models\Campaign;
 use App\Models\Enrollment;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class EnrollmentController extends Controller
 {
+    /**
+     * The student's enrollments in campaigns that are currently open, with each campaign's
+     * latest details and rules. The extension uses this to stay in sync after an instructor
+     * edits a campaign. A campaign that was closed (or has left its date window) is simply
+     * absent, which tells the extension to stop monitoring it.
+     */
+    public function index(Request $request): AnonymousResourceCollection
+    {
+        $enrollments = Enrollment::query()
+            ->where('student_id', $request->user()->id)
+            ->whereHas('campaign', fn($campaigns) => $campaigns->open())
+            ->with('campaign')
+            ->orderBy('id')
+            ->get();
+
+        return EnrollmentResource::collection($enrollments);
+    }
+
     public function join(JoinCampaignRequest $request): JsonResponse
     {
         $user = $request->user();

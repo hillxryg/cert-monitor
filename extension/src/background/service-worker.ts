@@ -10,6 +10,7 @@ import { DEFAULT_HEARTBEAT_INTERVAL_SECONDS, FLUSH_ALARM } from '../shared/confi
 import { buildLessonIdentity } from '../shared/lesson';
 import { clamp, round2 } from '../shared/num';
 import { getItem, setItem, updateItem } from '../shared/storage';
+import { toEnrolledCampaign } from '../shared/enrollments';
 import { findMatchingCampaign } from '../shared/url-match';
 import type {
   ActionResult,
@@ -18,6 +19,7 @@ import type {
   HeartbeatAck,
   HeartbeatPayload,
   JoinResponse,
+  PopupMessage,
   LoginResponse,
   PageContext,
   PopupState,
@@ -26,6 +28,7 @@ import type {
   TabMessage,
 } from '../shared/types';
 import { enqueueHeartbeat, flushQueue } from './queue';
+import { syncEnrollments, type SyncResult } from './sync';
 
 // ------------------------------------------------------------- lifecycle
 async function ensureFlushAlarm(): Promise<void> {
@@ -51,7 +54,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
 });
 
 // -------------------------------------------------------------- routing
-const POPUP_TYPES = new Set(['LOGIN', 'LOGOUT', 'JOIN', 'GET_STATE']);
+const POPUP_TYPES = new Set(['LOGIN', 'LOGOUT', 'JOIN', 'GET_STATE', 'SYNC']);
 const CONTENT_TYPES = new Set(['GET_PAGE_CONTEXT', 'HEARTBEAT']);
 
 function isRuntimeMessage(value: unknown): value is RuntimeMessage {
@@ -73,6 +76,7 @@ async function handleMessage(message: RuntimeMessage, sender: chrome.runtime.Mes
       case 'LOGOUT':
       case 'JOIN':
       case 'GET_STATE':
+      case 'SYNC':
         // Account actions are only accepted from the extension's own pages (the popup).
         if (fromContentScript || sender.id !== chrome.runtime.id) return fail('Not allowed.');
         return await handleAccountAction(message);
@@ -172,7 +176,7 @@ async function handleHeartbeat(telemetry: Telemetry, sender: chrome.runtime.Mess
 }
 
 // ------------------------------------------------------- account actions
-async function handleAccountAction(message: Extract<RuntimeMessage, { type: 'LOGIN' | 'LOGOUT' | 'JOIN' | 'GET_STATE' }>): Promise<ActionResult> {
+async function handleAccountAction(message: PopupMessage): Promise<ActionResult> {
   switch (message.type) {
     case 'LOGIN':
       return login(message.email, message.password);
@@ -182,7 +186,18 @@ async function handleAccountAction(message: Extract<RuntimeMessage, { type: 'LOG
       return join(message.joinCode);
     case 'GET_STATE':
       return { ok: true, state: await buildState() };
+    case 'SYNC': {
+      const result = await syncAndNotify();
+      return { ok: result.status === 'synced', sync_status: result.status, state: await buildState() };
+    }
   }
+}
+
+/** Refresh enrollments from the server; if anything relevant changed, make open tabs re-check. */
+async function syncAndNotify(): Promise<SyncResult> {
+  const result = await syncEnrollments();
+  if (result.changed) await broadcast({ type: 'CONTEXT_CHANGED' });
+  return result;
 }
 
 async function login(email: string, password: string): Promise<ActionResult> {
@@ -203,6 +218,10 @@ async function login(email: string, password: string): Promise<ActionResult> {
   }
 
   await setItem('auth', { token: response.data.token, user: response.data.user });
+
+  // Pull the student's enrollments (including ones joined on another device) before the
+  // popup renders. If this fails (offline), login still succeeds with whatever is cached.
+  await syncEnrollments();
   await broadcast({ type: 'CONTEXT_CHANGED' });
 
   return { ok: true, state: await buildState() };
@@ -243,17 +262,7 @@ async function join(rawCode: string): Promise<ActionResult> {
   }
   if (!response.ok || !response.data) return fail(firstErrorMessage(response.data, 'Could not join that campaign.'));
 
-  const { enrollment_id, joined_at, campaign } = response.data.data;
-  const enrolled: EnrolledCampaign = {
-    enrollment_id,
-    campaign_id: campaign.id,
-    title: campaign.title,
-    platform_name: campaign.platform_name,
-    target_url_pattern: campaign.target_url_pattern,
-    rules: campaign.rules,
-    joined_at,
-    state: 'active',
-  };
+  const enrolled = toEnrolledCampaign(response.data.data, Date.now());
 
   await updateItem('enrollments', (current) => {
     const key = String(auth.user.id);
@@ -262,7 +271,7 @@ async function join(rawCode: string): Promise<ActionResult> {
   });
   await broadcast({ type: 'CONTEXT_CHANGED' });
 
-  return { ok: true, notice: `Joined “${campaign.title}”. Open a lesson on the course site to start.`, state: await buildState() };
+  return { ok: true, notice: `Joined “${enrolled.title}”. Open a lesson on the course site to start.`, state: await buildState() };
 }
 
 async function buildState(): Promise<PopupState> {

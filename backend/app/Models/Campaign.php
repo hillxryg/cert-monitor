@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -49,6 +50,16 @@ class Campaign extends Model
         static::creating(function (Campaign $campaign) {
             $campaign->join_code ??= static::generateJoinCode();
         });
+    }
+
+    /**
+     * Campaigns currently accepting progress (SQL counterpart of isOpen(); keep them in sync).
+     */
+    public function scopeOpen(Builder $query): void
+    {
+        $query->where('status', 'active')
+            ->where(fn(Builder $q) => $q->whereNull('starts_at')->orWhere('starts_at', '<=', now()))
+            ->where(fn(Builder $q) => $q->whereNull('ends_at')->orWhere('ends_at', '>', now()));
     }
 
     public function isOpen(): bool

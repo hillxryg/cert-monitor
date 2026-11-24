@@ -27,6 +27,7 @@ const els = {
   campaigns: byId<HTMLUListElement>('campaigns'),
   empty: byId<HTMLParagraphElement>('empty'),
   queueNote: byId<HTMLParagraphElement>('queue-note'),
+  syncNote: byId<HTMLParagraphElement>('sync-note'),
 };
 
 async function send(message: PopupMessage): Promise<ActionResult> {
@@ -111,10 +112,44 @@ function render(state: PopupState): void {
   }
 }
 
-async function refresh(): Promise<void> {
+/** Renders whatever is cached right now (instant, works offline). */
+async function refresh(): Promise<PopupState | null> {
   const result = await send({ type: 'GET_STATE' });
+  if (result.state) {
+    render(result.state);
+    return result.state;
+  }
+  showBanner(result.error, 'error');
+  return null;
+}
+
+function setSyncNote(text: string | null, problem = false): void {
+  els.syncNote.hidden = text === null;
+  els.syncNote.textContent = text ?? '';
+  els.syncNote.className = problem ? 'sync-note problem' : 'sync-note';
+}
+
+/** Ask the worker to refresh campaigns from the server, so instructor edits show up. */
+async function sync(): Promise<void> {
+  setSyncNote('Refreshing campaigns…');
+
+  const result = await send({ type: 'SYNC' });
   if (result.state) render(result.state);
-  else showBanner(result.error, 'error');
+
+  switch (result.sync_status) {
+    case 'offline':
+      setSyncNote('Offline — showing your saved campaigns.', true);
+      break;
+    case 'error':
+      setSyncNote("Couldn't refresh campaigns — showing your saved ones.", true);
+      break;
+    case 'unauthenticated':
+      setSyncNote(null);
+      showBanner('Your session expired. Please log in again.', 'error');
+      break;
+    default:
+      setSyncNote(null); // synced, or another sync is already running
+  }
 }
 
 // --------------------------------------------------------------- actions
@@ -151,4 +186,7 @@ els.logout.addEventListener('click', () => {
 // Live status: the worker writes new numbers to storage after every heartbeat.
 chrome.storage.onChanged.addListener(() => void refresh());
 
-void refresh();
+// On open: show the cached campaigns immediately, then refresh them from the server.
+void refresh().then((state) => {
+  if (state?.logged_in) void sync();
+});

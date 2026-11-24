@@ -12,6 +12,7 @@ Route::prefix('v1')->group(function () {
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('auth/logout', [AuthController::class, 'logout']);
+        Route::get('enrollments', [EnrollmentController::class, 'index']);
         Route::post('enrollments/join', [EnrollmentController::class, 'join'])->middleware('throttle:20,1');
         Route::post('heartbeats', [HeartbeatController::class, 'store'])->middleware('throttle:120,1');
     });

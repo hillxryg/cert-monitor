@@ -22,6 +22,12 @@ Load it via `chrome://extensions` → *Developer mode* → *Load unpacked* → s
 | `src/content/*` | DOM listeners only. `focus-guard`, `video-tracker`, `read-tracker`, `overlay-pill` (closed Shadow DOM). |
 | `src/shared/*` | Types, storage helpers, API client, URL-pattern matching, lesson-key building. |
 
+**Enrollment sync.** Campaign settings (URL pattern, rules, open/closed) are cached locally but
+refreshed from `GET /api/v1/enrollments` on login and every time the popup opens. If the server is
+unreachable the cached copy keeps working. A campaign missing from the response was closed, so it
+is kept in the list marked "Closed" and monitoring stops; open tabs re-check immediately when
+anything relevant changed.
+
 The extension never computes completion or integrity scores. It reports raw telemetry; the
 numbers shown in the pill and popup come from the server's heartbeat responses.
 

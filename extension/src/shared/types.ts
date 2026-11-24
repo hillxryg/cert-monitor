@@ -31,6 +31,8 @@ export interface EnrolledCampaign {
   rules: CampaignRules;
   joined_at: string | null;
   state: EnrollmentState;
+  /** Epoch ms when the server last confirmed this enrollment (join or sync). */
+  synced_at: number;
 }
 
 /** Latest server-verified numbers for a campaign, taken from heartbeat responses. */
@@ -49,18 +51,25 @@ export interface LoginResponse {
   user: UserInfo;
 }
 
-export interface JoinResponse {
-  data: {
-    enrollment_id: number;
-    joined_at: string | null;
-    campaign: {
-      id: number;
-      title: string;
-      platform_name: string | null;
-      target_url_pattern: string | null;
-      rules: CampaignRules;
-    };
+/** One enrollment as the API returns it (EnrollmentResource), from both join and index. */
+export interface EnrollmentPayload {
+  enrollment_id: number;
+  joined_at: string | null;
+  campaign: {
+    id: number;
+    title: string;
+    platform_name: string | null;
+    target_url_pattern: string | null;
+    rules: CampaignRules;
   };
+}
+
+export interface JoinResponse {
+  data: EnrollmentPayload;
+}
+
+export interface EnrollmentsResponse {
+  data: EnrollmentPayload[];
 }
 
 interface HeartbeatCommon {
@@ -155,7 +164,8 @@ export type PopupMessage =
   | { type: 'LOGIN'; email: string; password: string }
   | { type: 'LOGOUT' }
   | { type: 'JOIN'; joinCode: string }
-  | { type: 'GET_STATE' };
+  | { type: 'GET_STATE' }
+  | { type: 'SYNC' };
 
 export interface PopupCampaign extends EnrolledCampaign {
   status: CampaignStatus | null;
@@ -168,11 +178,15 @@ export interface PopupState {
   queued: number;
 }
 
+export type SyncStatus = 'synced' | 'offline' | 'error' | 'unauthenticated' | 'busy';
+
 export interface ActionResult {
   ok: boolean;
   error?: string;
   notice?: string;
   state?: PopupState;
+  /** Present on SYNC: how refreshing enrollments from the server went. */
+  sync_status?: SyncStatus;
 }
 
 export type RuntimeMessage = ContentMessage | PopupMessage;
