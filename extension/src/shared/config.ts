@@ -1,7 +1,7 @@
 const configuredBase = import.meta.env.VITE_API_BASE_URL as string | undefined;
 
 /** Laravel API base, e.g. http://127.0.0.1:8000/api/v1 */
-export const API_BASE_URL = "https://cert-monitor-sqlf.onrender.com";
+export const API_BASE_URL = "https://cert-monitor-sqlf.onrender.com/api";
 
 export const REQUEST_TIMEOUT_MS = 10_000;
 
