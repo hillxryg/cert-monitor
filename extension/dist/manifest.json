@@ -18,13 +18,12 @@
     "tabs"
   ],
   "host_permissions": [
-    "http://127.0.0.1:8000/*",
-    "https://*/*"
+    "https://cert-monitor-sqlf.onrender.com/*"
   ],
   "content_scripts": [
     {
       "js": [
-        "assets/index.ts-loader-DSDWqpYs.js"
+        "assets/index.ts-loader-DXRIa7vK.js"
       ],
       "matches": [
         "https://*/*"
@@ -39,8 +38,8 @@
         "https://*/*"
       ],
       "resources": [
-        "assets/num-DMw4IehS.js",
-        "assets/index.ts-Rm5-pgLp.js"
+        "assets/num-mNqHy3nK.js",
+        "assets/index.ts-BFl8vg6D.js"
       ],
       "use_dynamic_url": false
     }

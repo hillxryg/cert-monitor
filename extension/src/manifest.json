@@ -12,7 +12,10 @@
     "type": "module"
   },
   "permissions": ["storage", "alarms", "activeTab", "tabs"],
-  "host_permissions": ["http://127.0.0.1:8000/*", "https://*/*"],
+  "host_permissions": [
+    "https://cert-monitor-sqlf.onrender.com/*"
+  ],
+  
   "content_scripts": [
     {
       "matches": ["https://*/*"],
