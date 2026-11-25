@@ -1,0 +1,18 @@
+[package]
+name = "hillxryg/cert-monitor"
+version = "0.1.0"
+description = "CertMonitor Laravel backend"
+
+[dependencies]
+"php/php" = "^8.2"
+
+[fs]
+"/app" = "."
+
+[[command]]
+name = "run"
+module = "php/php:php"
+runner = "wcgi"
+
+[command.annotations.wasi]
+main-args = ["-t", "/app/backend/public", "/app/backend/public/index.php"]
