@@ -20,16 +20,24 @@ class CampaignReport
 
     public const STATUSES = [self::IN_PROGRESS, self::FLAGGED, self::VERIFIED_COMPLETE];
 
+    /** Dashboard filter key (URL) => campaigns.status value. "All" is the absence of a filter. */
+    public const CAMPAIGN_FILTERS = ['open' => 'active', 'closed' => 'closed'];
+
     public function __construct(
         private readonly SegmentMerger $merger,
         private readonly CompletionCalculator $completion,
     ) {}
 
     /** Instructor's campaigns with student / average verified % / flagged counts in one query. */
-    public function dashboardCampaigns(User $instructor): Collection
+    public function dashboardCampaigns(User $instructor, string $search = '', ?string $status = null): Collection
     {
         return Campaign::query()
-            ->where('instructor_id', $instructor->id)
+            ->where('campaigns.instructor_id', $instructor->id)
+            ->when($search !== '', fn(Builder $q) => $this->applySearch($q, $search))
+            ->when(
+                isset(self::CAMPAIGN_FILTERS[$status ?? '']),
+                fn(Builder $q) => $q->where('campaigns.status', self::CAMPAIGN_FILTERS[$status]),
+            )
             ->withCount([
                 'enrollments as students_count',
                 'enrollments as flagged_count' => fn(Builder $q) => $q->whereColumn('enrollments.integrity_score', '<', 'campaigns.min_integrity_score'),
@@ -131,6 +139,19 @@ class CampaignReport
         }
 
         return array_values($modules);
+    }
+
+    /** Title / platform / join code contains the term. LIKE wildcards in the term are escaped. */
+    private function applySearch(Builder $query, string $search): Builder
+    {
+        $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $search) . '%';
+
+        // Grouped so the OR chain can't leak past the instructor / status constraints.
+        return $query->where(function (Builder $q) use ($like) {
+            foreach (['title', 'platform_name', 'join_code'] as $column) {
+                $q->orWhereRaw("campaigns.{$column} like ? escape '!'", [$like]);
+            }
+        });
     }
 
     private function applyStatus(Builder $query, Campaign $campaign, string $status): Builder

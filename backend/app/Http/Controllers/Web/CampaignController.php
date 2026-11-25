@@ -19,8 +19,16 @@ class CampaignController extends Controller
 
     public function index(Request $request): View
     {
+        $search = $request->query('q');
+        $search = is_string($search) ? mb_substr(trim($search), 0, 100) : '';
+
+        $status = $request->query('status');
+        $status = is_string($status) && array_key_exists($status, CampaignReport::CAMPAIGN_FILTERS) ? $status : null;
+
         return view('dashboard', [
-            'campaigns' => $this->report->dashboardCampaigns($request->user()),
+            'campaigns' => $this->report->dashboardCampaigns($request->user(), $search, $status),
+            'search' => $search,
+            'status' => $status,
         ]);
     }
 
@@ -101,6 +109,18 @@ class CampaignController extends Controller
                 ? 'Campaign reopened. Students can join and report progress again.'
                 : 'Campaign closed. New joins and progress are no longer accepted.'
         );
+    }
+
+    public function destroy(Campaign $campaign): RedirectResponse
+    {
+        Gate::authorize('manage', $campaign);
+
+        $title = $campaign->title;
+        $campaign->purge();
+
+        return redirect()
+            ->route('dashboard')
+            ->with('status', "Campaign “{$title}” and all of its student records were deleted.");
     }
 
     public function audit(Campaign $campaign, Enrollment $enrollment): View

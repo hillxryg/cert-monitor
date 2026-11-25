@@ -29,6 +29,7 @@ Route::middleware('auth')->group(function () {
         Route::get('campaigns/{campaign}', [CampaignController::class, 'show'])->name('campaigns.show');
         Route::get('campaigns/{campaign}/edit', [CampaignController::class, 'edit'])->name('campaigns.edit');
         Route::put('campaigns/{campaign}', [CampaignController::class, 'update'])->name('campaigns.update');
+        Route::delete('campaigns/{campaign}', [CampaignController::class, 'destroy'])->name('campaigns.destroy');
         Route::patch('campaigns/{campaign}/toggle', [CampaignController::class, 'toggle'])->name('campaigns.toggle');
         Route::get('campaigns/{campaign}/enrollments/{enrollment}', [CampaignController::class, 'audit'])->name('campaigns.audit');
     });

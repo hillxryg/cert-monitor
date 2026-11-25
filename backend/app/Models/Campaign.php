@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class Campaign extends Model
@@ -78,6 +79,25 @@ class Campaign extends Model
         } while (static::where('join_code', $code)->exists());
 
         return $code;
+    }
+
+    /**
+     * Permanently delete this campaign and everything beneath it (integrity logs, lesson
+     * progress, enrollments) in one transaction. The foreign keys already cascade, but doing
+     * it explicitly keeps this correct even where the DB doesn't enforce them (e.g. SQLite
+     * with foreign_key_constraints off).
+     */
+    public function purge(): void
+    {
+        DB::transaction(function () {
+            $enrollmentIds = Enrollment::query()->where('campaign_id', $this->id)->select('id');
+
+            IntegrityLog::query()->whereIn('enrollment_id', $enrollmentIds)->delete();
+            LessonProgress::query()->whereIn('enrollment_id', $enrollmentIds)->delete();
+            Enrollment::query()->where('campaign_id', $this->id)->delete();
+
+            $this->delete();
+        });
     }
 
     public function instructor(): BelongsTo
