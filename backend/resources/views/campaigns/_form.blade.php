@@ -37,6 +37,11 @@
                        value="{{ old('min_integrity_score', $campaign->min_integrity_score) }}" class="{{ $input }}">
             </x-form-field>
         </div>
+
+        <x-form-field name="expected_lessons" label="Expected modules (optional)" hint="Total modules in the certification, e.g. 12. Overall completion is measured against this, so finishing 3 of 12 reads 25%. Leave blank to average only the modules a student has started.">
+            <input id="expected_lessons" name="expected_lessons" type="number" min="1" max="500" step="1"
+                   value="{{ old('expected_lessons', $campaign->expected_lessons) }}" class="{{ $input }}">
+        </x-form-field>
     </section>
 
     <section class="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">

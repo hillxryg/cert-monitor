@@ -8,8 +8,14 @@ export const REQUEST_TIMEOUT_MS = 10_000;
 /** Fallback when the campaign rules don't specify a heartbeat cadence. */
 export const DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 15;
 
-/** Videos shorter than this (ads, UI loops, previews) are not treated as lesson videos. */
-export const MIN_LESSON_VIDEO_SECONDS = 30;
+/**
+ * Audio/video must be LONGER than this to count as lesson media. Filters out UI sounds,
+ * button clicks and tiny previews while still catching short narrated slides.
+ */
+export const MIN_MEDIA_SECONDS = 5;
+
+/** Used when the campaign rules (e.g. from an older cached enrollment) don't carry a value. */
+export const DEFAULT_IDLE_TIMEOUT_SECONDS = 180;
 
 /** Segments shorter than this are not worth a heartbeat. */
 export const MIN_SEGMENT_SECONDS = 0.5;

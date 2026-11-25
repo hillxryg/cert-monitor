@@ -24,8 +24,8 @@
         <dd class="text-xs text-slate-400">flagged below {{ $campaign->min_integrity_score }}</dd>
     </div>
     <div class="rounded-xl border border-slate-200 bg-white p-4">
-        <dt class="text-xs text-slate-500">Lessons tracked</dt>
-        <dd class="mt-1 text-2xl font-semibold">{{ count($lessons) }}</dd>
+        <dt class="text-xs text-slate-500">Modules started</dt>
+        <dd class="mt-1 text-2xl font-semibold">{{ count($modules) }}@if ($campaign->expected_lessons)<span class="text-base font-normal text-slate-400"> / {{ $campaign->expected_lessons }}</span>@endif</dd>
     </div>
     <div class="rounded-xl border border-slate-200 bg-white p-4">
         <dt class="text-xs text-slate-500">Last activity</dt>
@@ -35,87 +35,64 @@
 </dl>
 
 @if ($eventTotals->isNotEmpty())
-    <div class="mt-4 flex flex-wrap gap-2">
-        @foreach ($eventTotals as $row)
-            <span class="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs ring-1 ring-slate-200">
-                <span class="font-medium text-slate-800">{{ $row->event_type->label() }}</span>
-                <span class="text-slate-500">×{{ $row->occurrences }}</span>
-                @if ($row->points > 0)<span class="font-medium text-red-600">−{{ $row->points }} pts</span>@endif
-            </span>
-        @endforeach
-    </div>
+<div class="mt-4 flex flex-wrap gap-2">
+    @foreach ($eventTotals as $row)
+    <span class="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs ring-1 ring-slate-200">
+        <span class="font-medium text-slate-800">{{ $row->event_type->label() }}</span>
+        <span class="text-slate-500">×{{ $row->occurrences }}</span>
+        @if ($row->points > 0)<span class="font-medium text-red-600">−{{ $row->points }} pts</span>@endif
+    </span>
+    @endforeach
+</div>
 @endif
 
-<h2 class="mt-10 text-lg font-semibold text-slate-900">Lessons</h2>
+<h2 class="mt-10 text-lg font-semibold text-slate-900">Modules</h2>
 <div class="mt-3 space-y-4">
-    @forelse ($lessons as $lesson)
-        <article class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div class="flex flex-wrap items-start justify-between gap-3">
-                <div class="min-w-0">
-                    <h3 class="truncate font-medium text-slate-900">
-                        @if ($lesson['url'])
-                            <a href="{{ $lesson['url'] }}" target="_blank" rel="noopener noreferrer" class="hover:text-indigo-600">{{ $lesson['title'] }}</a>
-                        @else
-                            {{ $lesson['title'] }}
-                        @endif
-                    </h3>
-                    <p class="text-xs text-slate-500">
-                        {{ $lesson['content_type'] === 'video' ? 'Video' : 'Reading' }}
-                        @if ($lesson['last_heartbeat_at']) · last seen {{ $lesson['last_heartbeat_at']->format('M j, H:i') }} @endif
-                    </p>
-                </div>
-                <div class="flex items-center gap-2">
-                    @if ($lesson['completed'])
-                        <span class="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-inset ring-emerald-200">Completed</span>
-                    @endif
-                    <span class="text-lg font-semibold tabular-nums text-slate-900">{{ number_format($lesson['verified_pct'], 1) }}%</span>
-                    <span class="text-xs text-slate-500">verified</span>
-                </div>
-            </div>
-
-            @if ($lesson['content_type'] === 'video')
-                <div class="mt-4">
-                    <div class="relative h-4 overflow-hidden rounded bg-slate-200" role="img"
-                         aria-label="Watched portions of the video timeline">
-                        @foreach ($lesson['bars'] as $bar)
-                            <div class="absolute inset-y-0 bg-indigo-500" style="left: {{ $bar['left'] }}%; width: {{ $bar['width'] }}%"></div>
-                        @endforeach
-                    </div>
-                    <div class="mt-1 flex justify-between text-xs text-slate-400">
-                        <span>0:00</span>
-                        <span>{{ \App\Support\Timecode::clock($lesson['duration']) }}</span>
-                    </div>
-                </div>
-
-                <p class="mt-3 text-sm text-slate-600">
-                    <span class="font-medium text-slate-800">{{ \App\Support\Timecode::clock($lesson['watched_seconds']) }}</span>
-                    verified of {{ \App\Support\Timecode::clock($lesson['duration']) }}.
-                    @if ($lesson['range_labels'])
-                        Watched ranges:
-                        @foreach ($lesson['range_labels'] as $label)
-                            <span class="ml-1 inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-700">{{ $label }}</span>
-                        @endforeach
+    @forelse ($modules as $module)
+    @if (count($module['items']) === 1)
+    @include('campaigns._lesson', ['lesson' => $module['items'][0]])
+    @else
+    {{-- Several tracked items (e.g. the narrated slides of one SCORM module) rolled up into one card. --}}
+    <article class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0">
+                <h3 class="truncate font-medium text-slate-900">
+                    @if ($module['url'])
+                    <a href="{{ $module['url'] }}" target="_blank" rel="noopener noreferrer" class="hover:text-indigo-600">{{ $module['title'] }}</a>
                     @else
-                        No verified playback yet.
+                    {{ $module['title'] }}
                     @endif
-                </p>
-            @else
-                <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
-                    <div class="rounded-lg bg-slate-50 p-3">
-                        <dt class="text-xs text-slate-500">Focused reading time</dt>
-                        <dd class="mt-1 font-medium">{{ \App\Support\Timecode::clock($lesson['active_seconds']) }}</dd>
-                    </div>
-                    <div class="rounded-lg bg-slate-50 p-3">
-                        <dt class="text-xs text-slate-500">Deepest scroll</dt>
-                        <dd class="mt-1 font-medium">{{ $lesson['max_scroll_percent'] }}%</dd>
-                    </div>
-                </dl>
-            @endif
-        </article>
-    @empty
-        <div class="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
-            This student hasn't reported any lesson activity yet.
+                </h3>
+                <p class="text-xs text-slate-500">{{ count($module['items']) }} tracked items (e.g. narrated slides)</p>
+            </div>
+            <div class="flex items-center gap-2">
+                @if ($module['completed'])
+                <span class="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800 ring-1 ring-inset ring-emerald-200">All items completed</span>
+                @endif
+                <span class="text-lg font-semibold tabular-nums text-slate-900">{{ number_format($module['verified_pct'], 1) }}%</span>
+                <span class="text-xs text-slate-500">verified</span>
+            </div>
         </div>
+
+        <div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+            <div class="h-full rounded-full bg-indigo-500" style="width: {{ min(100, max(0, $module['verified_pct'])) }}%"></div>
+        </div>
+        <p class="mt-2 text-xs text-slate-500">Measured over the items the student has opened so far.</p>
+
+        <details class="mt-4">
+            <summary class="cursor-pointer text-sm font-medium text-indigo-600">Show items</summary>
+            <div class="mt-3 space-y-3">
+                @foreach ($module['items'] as $item)
+                @include('campaigns._lesson', ['lesson' => $item])
+                @endforeach
+            </div>
+        </details>
+    </article>
+    @endif
+    @empty
+    <div class="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+        This student hasn't reported any lesson activity yet.
+    </div>
     @endforelse
 </div>
 
@@ -137,19 +114,21 @@
             </thead>
             <tbody class="divide-y divide-slate-100">
                 @forelse ($logs as $log)
-                    <tr>
-                        <td class="whitespace-nowrap px-4 py-3 text-slate-500">{{ $log->occurred_at->format('M j, Y H:i:s') }}</td>
-                        <td class="whitespace-nowrap px-4 py-3">
-                            <span class="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-200">{{ $log->event_type->label() }}</span>
-                        </td>
-                        <td class="max-w-[14rem] truncate px-4 py-3 text-slate-600">{{ $log->lessonProgress?->lesson_title ?: $log->lessonProgress?->lesson_key ?: '—' }}</td>
-                        <td class="px-4 py-3 text-slate-700">{{ $log->event_type->describe($log->meta) }}</td>
-                        <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums {{ $log->points_deducted > 0 ? 'font-medium text-red-600' : 'text-slate-400' }}">
-                            {{ $log->points_deducted > 0 ? '−'.$log->points_deducted : '0' }}
-                        </td>
-                    </tr>
+                <tr>
+                    <td class="whitespace-nowrap px-4 py-3 text-slate-500">{{ $log->occurred_at->format('M j, Y H:i:s') }}</td>
+                    <td class="whitespace-nowrap px-4 py-3">
+                        <span class="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-200">{{ $log->event_type->label() }}</span>
+                    </td>
+                    <td class="max-w-[14rem] truncate px-4 py-3 text-slate-600">{{ $log->lessonProgress?->lesson_title ?: $log->lessonProgress?->lesson_key ?: '—' }}</td>
+                    <td class="px-4 py-3 text-slate-700">{{ $log->event_type->describe($log->meta) }}</td>
+                    <td class="whitespace-nowrap px-4 py-3 text-right tabular-nums {{ $log->points_deducted > 0 ? 'font-medium text-red-600' : 'text-slate-400' }}">
+                        {{ $log->points_deducted > 0 ? '−'.$log->points_deducted : '0' }}
+                    </td>
+                </tr>
                 @empty
-                    <tr><td colspan="5" class="px-4 py-10 text-center text-slate-500">No integrity events recorded. 🎉</td></tr>
+                <tr>
+                    <td colspan="5" class="px-4 py-10 text-center text-slate-500">No integrity events recorded. 🎉</td>
+                </tr>
                 @endforelse
             </tbody>
         </table>

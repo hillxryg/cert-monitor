@@ -22,9 +22,13 @@ class HeartbeatRequest extends FormRequest
             'lesson_title' => ['nullable', 'string', 'max:255'],
             'lesson_url' => ['nullable', 'url', 'max:2048'],
             'content_type' => ['required', Rule::in(['video', 'reading'])],
+            // Module this item belongs to (e.g. a SCORM page whose slides each report separately).
+            'lesson_group' => ['nullable', 'string', 'max:255'],
 
             'tab_focused' => ['required', 'boolean'],
             'tab_visible' => ['required', 'boolean'],
+            // Reading lessons: no trusted click/key/scroll for the idle timeout.
+            'idle' => ['nullable', 'boolean'],
 
             // Video telemetry
             'segment_start' => ['required_if:content_type,video', 'numeric', 'min:0', 'max:86400'],

@@ -26,6 +26,7 @@ class CampaignRequest extends FormRequest
             'target_url_pattern' => ['required', 'string', 'max:255', 'regex:/^(https?|\*):\/\/\S+$/i'],
             'required_completion_percent' => ['required', 'integer', 'between:1,100'],
             'min_integrity_score' => ['required', 'integer', 'between:0,100'],
+            'expected_lessons' => ['nullable', 'integer', 'between:1,500'],
             'max_playback_speed' => ['required', 'numeric', 'between:0.25,4'],
             'max_skip_seconds' => ['required', 'integer', 'between:0,3600'],
             'allow_muted_playback' => ['required', 'boolean'],

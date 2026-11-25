@@ -1,9 +1,10 @@
-import { MIN_LESSON_VIDEO_SECONDS, MIN_SEGMENT_SECONDS } from '../shared/config';
+import { MIN_MEDIA_SECONDS, MIN_SEGMENT_SECONDS } from '../shared/config';
+import { hashString } from '../shared/lesson';
 import { clamp, round2 } from '../shared/num';
-import type { VideoTelemetry } from '../shared/types';
+import type { MediaTelemetry } from '../shared/types';
 import type { FocusGuard, FocusState } from './focus-guard';
 
-type Emit = (telemetry: VideoTelemetry) => void;
+type Emit = (telemetry: MediaTelemetry) => void;
 
 /** Conditions that must stay constant for the whole time a segment is reported. */
 interface SegmentState {
@@ -13,12 +14,38 @@ interface SegmentState {
 }
 
 /**
- * Reports one <video> as a series of homogeneous segments: [start, end] of media time that
- * was played at one playback rate, with one mute state and one focus state. Whenever any of
- * those change (or the viewer seeks / pauses) the open segment is closed and reported, then
- * a new one begins. The server decides how much of each segment actually counts.
+ * Stable id for one media element within the page. Each narrated slide keeps its own timeline:
+ * if slides shared one, hearing a 20s slide would "verify" every other 20s slide too.
+ *
+ *  - http(s) source: hash of origin + path (query strings often carry rotating tokens).
+ *  - blob:/data:/MSE sources change on every load, so fall back to duration + position in the page.
  */
-class VideoSession {
+function mediaIdFor(media: HTMLMediaElement): string {
+  const tag = media instanceof HTMLVideoElement ? 'v' : 'a';
+  const source = media.currentSrc || media.src;
+
+  if (/^https?:/i.test(source)) {
+    try {
+      const url = new URL(source);
+      return `${tag}-${hashString(url.origin + url.pathname)}`;
+    } catch {
+      // fall through to the structural id
+    }
+  }
+
+  const siblings = Array.from(document.querySelectorAll(media instanceof HTMLVideoElement ? 'video' : 'audio'));
+  return `${tag}-d${Math.round(media.duration)}-i${Math.max(0, siblings.indexOf(media))}`;
+}
+
+/**
+ * Reports one <video> or <audio> element as a series of homogeneous segments: [start, end] of
+ * media time played at one playback rate, with one mute state and one focus state. Whenever any
+ * of those change (or the viewer seeks / pauses) the open segment is closed and reported, then a
+ * new one begins. The server decides how much of each segment actually counts.
+ *
+ * Narrated SCORM slides (<audio>) follow exactly the same rules as <video>.
+ */
+class MediaSession {
   private segmentStart: number | null = null;
   private segmentState: SegmentState | null = null;
   private lastTime = 0;
@@ -27,7 +54,7 @@ class VideoSession {
   private readonly subscriptions: Array<[string, EventListener]> = [];
 
   constructor(
-    private readonly video: HTMLVideoElement,
+    private readonly media: HTMLMediaElement,
     private readonly focus: FocusGuard,
     private readonly intervalMs: number,
     private readonly emit: Emit,
@@ -41,9 +68,9 @@ class VideoSession {
     this.listen('ratechange', () => this.restart());
     this.listen('volumechange', () => this.onEnvironmentChange());
     this.listen('timeupdate', () => {
-      if (!this.video.seeking) this.lastTime = this.video.currentTime;
+      if (!this.media.seeking) this.lastTime = this.media.currentTime;
     });
-    // Source changed (next lesson, ad -> content): don't mix positions from different media.
+    // Source changed (next slide, ad -> content): don't mix positions from different media.
     this.listen('emptied', () => {
       this.flush();
       this.onQualificationChange();
@@ -53,15 +80,21 @@ class VideoSession {
       this.onQualificationChange();
       this.begin();
     });
-    this.listen('durationchange', () => this.onQualificationChange());
+    this.listen('durationchange', () => {
+      this.onQualificationChange();
+      this.begin(); // duration may only become known (and long enough) after playback started
+    });
 
-    this.begin(); // the video may already be playing when we attach
+    this.begin(); // the media may already be playing when we attach
   }
 
-  /** Long enough to be a lesson video rather than an ad, preview or decorative loop. */
+  /**
+   * Long enough to be lesson content: rules out UI sounds and tiny clips, live streams (infinite
+   * duration) and looping decorative backgrounds.
+   */
   get qualifies(): boolean {
-    const { duration } = this.video;
-    return Number.isFinite(duration) && duration >= MIN_LESSON_VIDEO_SECONDS;
+    const { duration, loop } = this.media;
+    return Number.isFinite(duration) && duration > MIN_MEDIA_SECONDS && !loop;
   }
 
   /** Focus guard changed: close the segment if the conditions it was recorded under changed. */
@@ -81,19 +114,19 @@ class VideoSession {
 
   dispose(): void {
     this.flush();
-    for (const [type, handler] of this.subscriptions) this.video.removeEventListener(type, handler);
+    for (const [type, handler] of this.subscriptions) this.media.removeEventListener(type, handler);
     this.subscriptions.length = 0;
   }
 
   private listen(type: string, handler: EventListener): void {
-    this.video.addEventListener(type, handler);
+    this.media.addEventListener(type, handler);
     this.subscriptions.push([type, handler]);
   }
 
   private readState(): SegmentState {
     return {
-      playbackRate: clamp(this.video.playbackRate, 0.0625, 16),
-      muted: this.video.muted || this.video.volume === 0,
+      playbackRate: clamp(this.media.playbackRate, 0.0625, 16),
+      muted: this.media.muted || this.media.volume === 0,
       focus: { ...this.focus.current },
     };
   }
@@ -101,11 +134,11 @@ class VideoSession {
   private begin(): void {
     if (this.segmentStart !== null) return;
 
-    const video = this.video;
-    if (video.paused || video.ended || video.seeking || !this.qualifies) return;
+    const media = this.media;
+    if (media.paused || media.ended || media.seeking || !this.qualifies) return;
 
-    this.segmentStart = video.currentTime;
-    this.lastTime = video.currentTime;
+    this.segmentStart = media.currentTime;
+    this.lastTime = media.currentTime;
     this.segmentState = this.readState();
     this.timer = window.setInterval(() => this.restart(), this.intervalMs);
   }
@@ -121,8 +154,8 @@ class VideoSession {
     const start = this.segmentStart;
     const state = this.segmentState;
     // While a seek is in flight currentTime is already the *destination*; use the last played position.
-    const end = this.video.seeking ? this.lastTime : this.video.currentTime;
-    const duration = this.video.duration;
+    const end = this.media.seeking ? this.lastTime : this.media.currentTime;
+    const duration = this.media.duration;
 
     this.segmentStart = null;
     this.segmentState = null;
@@ -138,7 +171,9 @@ class VideoSession {
     this.lastTimestamp = timestamp;
 
     this.emit({
-      kind: 'video',
+      kind: 'media',
+      media: this.media instanceof HTMLVideoElement ? 'video' : 'audio',
+      media_id: mediaIdFor(this.media),
       client_timestamp: timestamp,
       page_title: document.title.slice(0, 255),
       is_focused: state.focus.focused,
@@ -148,27 +183,22 @@ class VideoSession {
       total_duration: round2(duration),
       playback_rate: state.playbackRate,
       is_muted: state.muted,
-      video_index: this.index(),
     });
-  }
-
-  private index(): number {
-    return Math.max(0, Array.from(document.querySelectorAll('video')).indexOf(this.video));
   }
 }
 
-export class VideoTracker {
-  private readonly sessions = new Map<HTMLVideoElement, VideoSession>();
+export class MediaTracker {
+  private readonly sessions = new Map<HTMLMediaElement, MediaSession>();
   private observer: MutationObserver | null = null;
   private unsubscribeFocus: (() => void) | null = null;
-  private lessonVideoCount = 0;
+  private lessonMediaCount = 0;
   private intervalMs = 15_000;
 
   constructor(
     private readonly focus: FocusGuard,
     private readonly emit: Emit,
-    /** Called when the number of lesson-length videos in this frame changes. */
-    private readonly onLessonVideoChange: (count: number) => void,
+    /** Called when the number of lesson-length media elements in this frame changes. */
+    private readonly onLessonMediaChange: (count: number) => void,
   ) {}
 
   start(intervalSeconds: number): void {
@@ -177,7 +207,7 @@ export class VideoTracker {
 
     this.scan(document);
 
-    // Players are frequently injected after load (and swapped on SPA navigation).
+    // Players are frequently injected after load (and swapped on SPA navigation / slide changes).
     this.observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         mutation.addedNodes.forEach((node) => {
@@ -201,27 +231,29 @@ export class VideoTracker {
 
     this.sessions.forEach((session) => session.dispose());
     this.sessions.clear();
-    this.lessonVideoCount = 0;
+    this.lessonMediaCount = 0;
   }
 
   private scan(root: ParentNode): void {
-    if (root instanceof HTMLVideoElement) this.attach(root);
-    root.querySelectorAll('video').forEach((video) => this.attach(video));
+    if (root instanceof HTMLMediaElement) this.attach(root);
+    root.querySelectorAll('video, audio').forEach((element) => {
+      if (element instanceof HTMLMediaElement) this.attach(element);
+    });
   }
 
-  private attach(video: HTMLVideoElement): void {
-    if (this.sessions.has(video)) return;
+  private attach(media: HTMLMediaElement): void {
+    if (this.sessions.has(media)) return;
 
-    const session = new VideoSession(video, this.focus, this.intervalMs, this.emit, () => this.refreshQualification());
-    this.sessions.set(video, session);
+    const session = new MediaSession(media, this.focus, this.intervalMs, this.emit, () => this.refreshQualification());
+    this.sessions.set(media, session);
     this.refreshQualification();
   }
 
   private prune(): void {
-    for (const [video, session] of this.sessions) {
-      if (!video.isConnected) {
+    for (const [media, session] of this.sessions) {
+      if (!media.isConnected) {
         session.dispose();
-        this.sessions.delete(video);
+        this.sessions.delete(media);
       }
     }
     this.refreshQualification();
@@ -233,9 +265,9 @@ export class VideoTracker {
       if (session.qualifies) count++;
     });
 
-    if (count !== this.lessonVideoCount) {
-      this.lessonVideoCount = count;
-      this.onLessonVideoChange(count);
+    if (count !== this.lessonMediaCount) {
+      this.lessonMediaCount = count;
+      this.onLessonMediaChange(count);
     }
   }
 }

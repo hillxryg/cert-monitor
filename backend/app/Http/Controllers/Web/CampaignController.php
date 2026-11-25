@@ -15,9 +15,7 @@ use Illuminate\View\View;
 
 class CampaignController extends Controller
 {
-    public function __construct(private readonly CampaignReport $report)
-    {
-    }
+    public function __construct(private readonly CampaignReport $report) {}
 
     public function index(Request $request): View
     {
@@ -62,7 +60,7 @@ class CampaignController extends Controller
 
         $enrollments = $this->report->roster($campaign, $filter)->paginate(25)->withQueryString();
         $enrollments->getCollection()->each(
-            fn (Enrollment $e) => $e->setAttribute('audit_status', $this->report->statusFor($e, $campaign))
+            fn(Enrollment $e) => $e->setAttribute('audit_status', $this->report->statusFor($e, $campaign))
         );
 
         return view('campaigns.show', [
@@ -130,7 +128,7 @@ class CampaignController extends Controller
         return view('campaigns.audit', [
             'campaign' => $campaign,
             'enrollment' => $enrollment,
-            'lessons' => $this->report->lessonBreakdown($enrollment),
+            'modules' => $this->report->moduleBreakdown($enrollment),
             'logs' => $logs,
             'eventTotals' => $eventTotals,
         ]);

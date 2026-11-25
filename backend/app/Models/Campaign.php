@@ -28,6 +28,7 @@ class Campaign extends Model
         'max_playback_speed',
         'allow_muted_playback',
         'max_skip_seconds',
+        'expected_lessons',
         'starts_at',
         'ends_at',
     ];
@@ -42,6 +43,7 @@ class Campaign extends Model
             'max_playback_speed' => 'float',
             'allow_muted_playback' => 'boolean',
             'max_skip_seconds' => 'integer',
+            'expected_lessons' => 'integer',
         ];
     }
 

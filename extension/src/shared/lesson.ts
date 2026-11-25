@@ -1,4 +1,5 @@
-const TRACKING_PARAMS = /^(utm_.+|fbclid|gclid|mc_cid|mc_eid|ref|ref_src)$/i;
+// Volatile params that change between visits to the same lesson (sesskey is Moodle's per-session token).
+const TRACKING_PARAMS = /^(utm_.+|fbclid|gclid|mc_cid|mc_eid|ref|ref_src|sesskey)$/i;
 const MAX_KEY_LENGTH = 255;
 const MAX_URL_LENGTH = 2048;
 
@@ -23,7 +24,7 @@ export function normalizeUrl(raw: string): string | null {
 }
 
 /** Small non-cryptographic hash (cyrb53), used only to shorten very long lesson keys. */
-function hashString(text: string): string {
+export function hashString(text: string): string {
   let h1 = 0xdeadbeef;
   let h2 = 0x41c6ce57;
   for (let i = 0; i < text.length; i++) {
@@ -38,6 +39,8 @@ function hashString(text: string): string {
 
 export interface LessonIdentity {
   key: string;
+  /** The module this item belongs to: the lesson page itself. */
+  group: string;
   url: string | null;
 }
 
@@ -45,17 +48,32 @@ interface IdentityInput {
   tabUrl: string;
   frameId: number;
   frameUrl: string | undefined;
-  kind: 'video' | 'reading';
-  videoIndex: number;
+  kind: 'media' | 'reading';
+  mediaId: string | null;
+}
+
+function shorten(text: string): string {
+  return text.length > MAX_KEY_LENGTH ? `${text.slice(0, 200)}~${hashString(text)}` : text;
+}
+
+function hostnameOf(url: string | undefined): string {
+  if (!url) return '';
+  try {
+    return new URL(url).hostname; // '' for about:blank, blob:, data:
+  } catch {
+    return '';
+  }
 }
 
 /**
- * Builds the stable lesson_key the server groups progress by.
+ * Builds the stable lesson_key (one tracked item) and lesson_group (its module).
  *
- * Always derived from the *tab* URL (the lesson page), never the frame's own URL, so a
- * video inside a player iframe still belongs to the page the student is on. Suffixes keep
- * different trackers on one page from colliding (the server rejects a content-type change
- * for an existing key).
+ * Both derive from the *tab* URL (the lesson page), never the frame's own URL, so media inside
+ * player iframes - including about:blank / blob: frames whose URLs are meaningless or change on
+ * every load - still belongs to the page the student is on. Each media element adds its own
+ * suffix: narrated slides must not share a timeline, or watching one slide would "verify" every
+ * slide of the same length. Reading items get a suffix so they never collide with media (the
+ * server rejects a content-type change for an existing key).
  */
 export function buildLessonIdentity(input: IdentityInput): LessonIdentity | null {
   const url = normalizeUrl(input.tabUrl);
@@ -63,19 +81,11 @@ export function buildLessonIdentity(input: IdentityInput): LessonIdentity | null
 
   let key = url;
 
-  if (input.frameId !== 0 && input.frameUrl) {
-    try {
-      key += `#frame:${new URL(input.frameUrl).hostname}`;
-    } catch {
-      key += '#frame';
-    }
-  }
-  if (input.kind === 'video' && input.videoIndex > 0) key += `#v${input.videoIndex}`;
+  const frameHost = input.frameId !== 0 ? hostnameOf(input.frameUrl) : '';
+  if (frameHost !== '') key += `#frame:${frameHost}`;
+
+  if (input.kind === 'media' && input.mediaId) key += `#m:${input.mediaId}`;
   if (input.kind === 'reading') key += '#reading';
 
-  if (key.length > MAX_KEY_LENGTH) {
-    key = `${key.slice(0, 200)}~${hashString(key)}`;
-  }
-
-  return { key, url: url.length <= MAX_URL_LENGTH ? url : null };
+  return { key: shorten(key), group: shorten(url), url: url.length <= MAX_URL_LENGTH ? url : null };
 }

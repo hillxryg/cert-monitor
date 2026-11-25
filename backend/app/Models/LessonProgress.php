@@ -16,8 +16,13 @@ class LessonProgress extends Model
     // Computed columns (watched_ranges, *_seconds, completion_percent) are set
     // explicitly by services (SegmentMerger), not mass-assigned from client input.
     protected $fillable = [
-        'enrollment_id', 'lesson_key', 'lesson_title', 'lesson_url',
-        'content_type', 'video_duration',
+        'enrollment_id',
+        'lesson_key',
+        'lesson_title',
+        'lesson_url',
+        'content_type',
+        'video_duration',
+        'lesson_group',
     ];
 
     protected function casts(): array

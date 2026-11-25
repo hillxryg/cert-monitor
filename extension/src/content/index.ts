@@ -1,48 +1,56 @@
-import { DEFAULT_HEARTBEAT_INTERVAL_SECONDS } from '../shared/config';
+import { DEFAULT_HEARTBEAT_INTERVAL_SECONDS, DEFAULT_IDLE_TIMEOUT_SECONDS } from '../shared/config';
 import type { HeartbeatAck, PageContext, PillUpdate, Telemetry, TabMessage } from '../shared/types';
 import { FocusGuard } from './focus-guard';
 import { sendToBackground } from './messaging';
 import { OverlayPill, type PillView } from './overlay-pill';
 import { ReadTracker } from './read-tracker';
-import { VideoTracker } from './video-tracker';
+import { MediaTracker } from './video-tracker';
 
 const WARNING_TTL_MS = 20_000;
-const VIDEO_MARKER = 'certMonitorVideo';
+const MEDIA_MARKER = 'certMonitorMedia';
 
 function warningText(flags: string[]): string | null {
   if (flags.includes('speed_violation')) return 'Not counting • Speed above limit';
   if (flags.includes('muted_playback')) return 'Not counting • Unmute to earn credit';
   if (flags.includes('seek_skip')) return 'Skipped ahead • Skipped part not counted';
   if (flags.includes('scroll_too_fast')) return 'Scrolling too fast • Take your time';
+  if (flags.includes('idle_timeout')) return 'Paused • No activity detected';
   return null;
 }
 
 /**
- * Runs in every frame. It only asks the service worker whether this tab belongs to one of
- * the student's campaigns; trackers start when it does and stop when it no longer does
- * (SPA navigation away, logout, campaign closed).
+ * Runs in every frame, including nested about:blank / blob: frames (SCORM players).
+ * It only asks the service worker whether this tab belongs to one of the student's campaigns;
+ * trackers start when it does and stop when it no longer does (SPA navigation away, logout,
+ * campaign closed).
+ *
+ * The status pill exists ONLY in the top window: that is the one place that stays visible
+ * regardless of how deeply the lesson content is nested. Nested frames never draw anything;
+ * they report interactions and media up to the top frame, and the service worker sends pill
+ * updates to frame 0 only.
  */
 class ContentController {
   private readonly isTop = window === window.top;
   private readonly focus = new FocusGuard();
-  private readonly video = new VideoTracker(
+  private readonly media = new MediaTracker(
     this.focus,
     (telemetry) => this.emit(telemetry),
-    (count) => this.onLocalVideoChange(count),
+    (count) => this.onLocalMediaChange(count),
   );
   private readonly reader = new ReadTracker(this.focus, (telemetry) => this.emit(telemetry));
   private readonly pill = new OverlayPill();
 
   private active = false;
-  private localVideoCount = 0;
-  private readonly framesWithVideo = new Set<MessageEventSource>();
+  private localMediaCount = 0;
+  private readerEnabled = false;
+  private readonly framesWithMedia = new Set<MessageEventSource>();
   private lastUpdate: PillUpdate | null = null;
   private pillTimer: number | undefined;
   private unsubscribeFocus: (() => void) | null = null;
 
   constructor() {
     if (this.isTop) {
-      // Child frames announce lesson videos so the top frame doesn't also report "reading".
+      // Child frames announce lesson media so the top frame doesn't also report "reading".
       window.addEventListener('message', this.onFrameMessage);
     }
   }
@@ -51,13 +59,18 @@ class ContentController {
     const context = await sendToBackground<PageContext>({ type: 'GET_PAGE_CONTEXT' });
 
     if (context?.active) {
-      this.activate(context.interval_seconds || DEFAULT_HEARTBEAT_INTERVAL_SECONDS);
+      this.activate(
+        context.interval_seconds || DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+        context.idle_timeout_seconds || DEFAULT_IDLE_TIMEOUT_SECONDS,
+      );
     } else {
       this.deactivate();
     }
   }
 
   onPillUpdate(update: PillUpdate): void {
+    if (!this.isTop) return; // only the top window draws the pill
+
     this.lastUpdate = update;
     this.renderPill();
 
@@ -65,7 +78,7 @@ class ContentController {
     this.pillTimer = window.setTimeout(() => this.renderPill(), WARNING_TTL_MS + 100);
   }
 
-  private activate(intervalSeconds: number): void {
+  private activate(intervalSeconds: number, idleTimeoutSeconds: number): void {
     if (this.active) {
       this.reader.reset(); // SPA moved to another lesson that still matches
       this.lastUpdate = null;
@@ -74,8 +87,8 @@ class ContentController {
     }
     this.active = true;
 
-    this.focus.start();
-    this.video.start(intervalSeconds);
+    this.focus.start(idleTimeoutSeconds);
+    this.media.start(intervalSeconds);
 
     if (this.isTop) {
       this.reader.start(intervalSeconds);
@@ -91,12 +104,13 @@ class ContentController {
     if (!this.active) return;
     this.active = false;
 
-    this.video.stop();
+    this.media.stop();
     this.reader.stop();
     this.focus.stop();
     this.unsubscribeFocus?.();
     this.unsubscribeFocus = null;
     this.pill.unmount();
+    this.readerEnabled = false;
     this.lastUpdate = null;
     window.clearTimeout(this.pillTimer);
   }
@@ -110,19 +124,21 @@ class ContentController {
     });
   }
 
-  // ------------------------------------------------ video / reading coordination
-  private onLocalVideoChange(count: number): void {
-    this.localVideoCount = count;
+  // ------------------------------------------------ media / reading coordination
+  private onLocalMediaChange(count: number): void {
+    this.localMediaCount = count;
 
     if (this.isTop) {
       this.updateReaderEnabled();
     } else {
-      window.top?.postMessage({ certMonitor: VIDEO_MARKER, present: count > 0 }, '*');
+      window.top?.postMessage({ certMonitor: MEDIA_MARKER, present: count > 0 }, '*');
     }
   }
 
   private updateReaderEnabled(): void {
-    this.reader.setEnabled(this.localVideoCount === 0 && this.framesWithVideo.size === 0);
+    this.readerEnabled = this.localMediaCount === 0 && this.framesWithMedia.size === 0;
+    this.reader.setEnabled(this.readerEnabled);
+    this.renderPill();
   }
 
   private readonly onFrameMessage = (event: MessageEvent): void => {
@@ -130,10 +146,10 @@ class ContentController {
     if (typeof data !== 'object' || data === null || !event.source || event.source === window) return;
 
     const message = data as { certMonitor?: unknown; present?: unknown };
-    if (message.certMonitor !== VIDEO_MARKER) return;
+    if (message.certMonitor !== MEDIA_MARKER) return;
 
-    if (message.present === true) this.framesWithVideo.add(event.source);
-    else this.framesWithVideo.delete(event.source);
+    if (message.present === true) this.framesWithMedia.add(event.source);
+    else this.framesWithMedia.delete(event.source);
 
     this.updateReaderEnabled();
   };
@@ -142,12 +158,15 @@ class ContentController {
   private renderPill(): void {
     if (!this.isTop || !this.active) return;
 
-    const { focused, visible } = this.focus.current;
+    const { focused, visible, idle } = this.focus.current;
     const update = this.lastUpdate;
     let view: PillView;
 
     if (!focused || !visible) {
       view = { tone: 'paused', text: 'Paused • Tab Unfocused' };
+    } else if (idle && this.readerEnabled) {
+      // Idleness only matters for reading: people legitimately watch or listen without touching anything.
+      view = { tone: 'paused', text: 'Paused • No Activity' };
     } else {
       const fresh = update !== null && Date.now() - update.received_at < WARNING_TTL_MS;
       const warning = fresh ? warningText(update.flags) : null;

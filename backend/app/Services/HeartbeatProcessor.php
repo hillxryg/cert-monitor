@@ -19,9 +19,10 @@ class HeartbeatProcessor
 {
     private const SPEED_EPSILON = 0.001;
 
-    public function __construct(private readonly SegmentMerger $merger)
-    {
-    }
+    public function __construct(
+        private readonly SegmentMerger $merger,
+        private readonly CompletionCalculator $completion,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $input  Validated HeartbeatRequest payload
@@ -48,6 +49,7 @@ class HeartbeatProcessor
                 'lesson_title' => $input['lesson_title'] ?? null,
                 'lesson_url' => $input['lesson_url'] ?? null,
                 'content_type' => $input['content_type'],
+                'lesson_group' => $input['lesson_group'] ?? null,
             ],
         );
 
@@ -86,10 +88,15 @@ class HeartbeatProcessor
                 ? $this->analyzeVideo($enrollment, $progress, $input, $focused, $creditWindow, $tolerance, $events)
                 : $this->analyzeReading($progress, $input, $focused, $creditWindow, $events);
 
-            $progress->forceFill($analysis['progress'] + ['last_heartbeat_at' => $occurredAt]);
+            $progress->forceFill($analysis['progress'] + [
+                'last_heartbeat_at' => $occurredAt,
+                'lesson_group' => $progress->lesson_group ?? ($input['lesson_group'] ?? null),
+            ]);
 
-            if ($progress->completed_at === null
-                && (float) $progress->completion_percent >= $enrollment->campaign->required_completion_percent) {
+            if (
+                $progress->completed_at === null
+                && (float) $progress->completion_percent >= $enrollment->campaign->required_completion_percent
+            ) {
                 $progress->completed_at = $occurredAt;
             }
 
@@ -99,11 +106,11 @@ class HeartbeatProcessor
 
             $enrollment->forceFill([
                 'integrity_score' => max(0, (int) $enrollment->integrity_score - $deducted),
-                'completion_percent' => round((float) LessonProgress::where('enrollment_id', $enrollment->id)->avg('completion_percent'), 2),
+                'completion_percent' => $this->completion->forEnrollment($enrollment),
                 'last_activity_at' => $occurredAt,
             ])->save();
 
-            $flags = array_values(array_unique(array_map(static fn (array $e): string => $e[0]->value, $events)));
+            $flags = array_values(array_unique(array_map(static fn(array $e): string => $e[0]->value, $events)));
 
             return $this->snapshot($progress, $enrollment, $flags, $analysis['credited']);
         });
@@ -225,7 +232,13 @@ class HeartbeatProcessor
             ]];
         }
 
-        $credited = $focused ? $creditWindow : 0.0;
+        // Focused but no real interaction for the idle timeout: the page is just sitting open.
+        $idle = (bool) ($input['idle'] ?? false);
+        if ($focused && $idle) {
+            $events[] = [IntegrityEventType::IdleTimeout, []];
+        }
+
+        $credited = ($focused && ! $idle) ? $creditWindow : 0.0;
         $active = (int) $progress->active_seconds + (int) round($credited);
         $maxScroll = max((int) $progress->max_scroll_percent, $scroll);
 
@@ -308,7 +321,7 @@ class HeartbeatProcessor
                 'completion_percent' => (float) $enrollment->completion_percent,
                 'integrity_score' => (int) $enrollment->integrity_score,
             ],
-        ], static fn (mixed $v): bool => $v !== null);
+        ], static fn(mixed $v): bool => $v !== null);
     }
 
     /** @return array<string, mixed> */

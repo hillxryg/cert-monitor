@@ -372,6 +372,74 @@ class HeartbeatTest extends TestCase
         $this->assertSame(0, LessonProgress::where('lesson_key', 'reading-1')->firstOrFail()->active_seconds);
     }
 
+    // ------------------------------------------- idle readers & SCORM modules
+
+    private function readingPayload(array $overrides = []): array
+    {
+        return array_merge([
+            'campaign_id' => $this->campaign->id,
+            'client_timestamp' => $this->base->getTimestampMs(),
+            'lesson_key' => 'reading-1',
+            'content_type' => 'reading',
+            'tab_focused' => true,
+            'tab_visible' => true,
+            'scroll_percent' => 10,
+        ], $overrides);
+    }
+
+    public function test_idle_reading_earns_no_dwell_time_and_is_logged(): void
+    {
+        $response = $this->postJson(self::URL, $this->readingPayload(['idle' => true]))->assertOk();
+
+        $this->assertSame(['idle_timeout'], $response->json('flags'));
+        $this->assertEqualsWithDelta(0.0, $response->json('credited_seconds'), 0.001);
+        $this->assertSame(0, LessonProgress::where('lesson_key', 'reading-1')->firstOrFail()->active_seconds);
+        $this->assertSame(2, $this->logsOfType('idle_timeout')->firstOrFail()->points_deducted);
+        $this->assertSame(98, $this->integrityScore());
+    }
+
+    public function test_reading_without_the_idle_flag_is_credited_as_before(): void
+    {
+        $response = $this->postJson(self::URL, $this->readingPayload())->assertOk();
+
+        $this->assertSame([], $response->json('flags'));
+        $this->assertEqualsWithDelta(15.0, $response->json('credited_seconds'), 0.001);
+    }
+
+    public function test_lesson_group_is_stored_with_the_item(): void
+    {
+        $this->send(0, ['lesson_group' => 'https://learn.example.com/module-1'])->assertOk();
+
+        $this->assertSame('https://learn.example.com/module-1', $this->progress()->lesson_group);
+    }
+
+    public function test_overall_completion_is_measured_against_the_expected_number_of_modules(): void
+    {
+        $this->campaign->forceFill(['expected_lessons' => 4])->save();
+
+        // Two narrated slides of ONE module, 15s of 30s heard on each => the module is 50% verified.
+        $slide = ['lesson_group' => 'm1', 'duration' => 30, 'segment_start' => 0, 'segment_end' => 15, 'current_time' => 15];
+        $this->send(0, $slide + ['lesson_key' => 'm1#slide-a']);
+        $this->send(15, $slide + ['lesson_key' => 'm1#slide-b']);
+
+        // One module at 50% out of four expected = 12.5%.
+        $this->assertEqualsWithDelta(12.5, (float) $this->enrollment->fresh()->completion_percent, 0.001);
+    }
+
+    public function test_without_expected_modules_overall_completion_averages_the_modules_started(): void
+    {
+        $this->send(0, [
+            'lesson_key' => 'm1#a', 'lesson_group' => 'm1', 'duration' => 30,
+            'segment_start' => 0, 'segment_end' => 15, 'current_time' => 15,
+        ]); // module 1: 50%
+        $this->send(15, [
+            'lesson_key' => 'm2#a', 'lesson_group' => 'm2', 'duration' => 15,
+            'segment_start' => 0, 'segment_end' => 15, 'current_time' => 15,
+        ]); // module 2: 100%
+
+        $this->assertEqualsWithDelta(75.0, (float) $this->enrollment->fresh()->completion_percent, 0.001);
+    }
+
     // ------------------------------------------------ access & validation
 
     public function test_unauthenticated_requests_are_rejected(): void

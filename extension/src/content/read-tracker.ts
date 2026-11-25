@@ -10,9 +10,13 @@ function scrollPercent(container: Element): number {
 }
 
 /**
- * For lesson pages without a video: reports the deepest scroll position every interval,
- * together with the focus state, so the server can measure focused dwell time against
- * scroll depth. Only active while no lesson-length video is present.
+ * For lesson pages without audio/video: reports the deepest scroll position every interval,
+ * together with the focus and idle state, so the server can measure focused, non-idle dwell
+ * time against scroll depth. Only active while no lesson-length media is present.
+ *
+ * The idle timer lives in FocusGuard (it needs to see clicks, key presses and scrolls from every
+ * frame, including nested slide frames, and report them to the top frame). Any of them resets it;
+ * here we only read the result.
  */
 export class ReadTracker {
   private started = false;
@@ -107,7 +111,7 @@ export class ReadTracker {
     const timestamp = Math.max(Date.now(), this.lastTimestamp + 1);
     this.lastTimestamp = timestamp;
 
-    const { focused, visible } = this.focus.current;
+    const { focused, visible, idle } = this.focus.current;
 
     this.emit({
       kind: 'reading',
@@ -116,6 +120,7 @@ export class ReadTracker {
       is_focused: focused,
       is_visible: visible,
       scroll_percent: this.maxScroll,
+      is_idle: idle,
     });
   }
 }

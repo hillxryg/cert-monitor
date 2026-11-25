@@ -20,9 +20,10 @@ class CampaignReport
 
     public const STATUSES = [self::IN_PROGRESS, self::FLAGGED, self::VERIFIED_COMPLETE];
 
-    public function __construct(private readonly SegmentMerger $merger)
-    {
-    }
+    public function __construct(
+        private readonly SegmentMerger $merger,
+        private readonly CompletionCalculator $completion,
+    ) {}
 
     /** Instructor's campaigns with student / average verified % / flagged counts in one query. */
     public function dashboardCampaigns(User $instructor): Collection
@@ -31,7 +32,7 @@ class CampaignReport
             ->where('instructor_id', $instructor->id)
             ->withCount([
                 'enrollments as students_count',
-                'enrollments as flagged_count' => fn (Builder $q) => $q->whereColumn('enrollments.integrity_score', '<', 'campaigns.min_integrity_score'),
+                'enrollments as flagged_count' => fn(Builder $q) => $q->whereColumn('enrollments.integrity_score', '<', 'campaigns.min_integrity_score'),
             ])
             ->withAvg('enrollments as avg_verified_pct', 'completion_percent')
             ->latest()
@@ -89,8 +90,47 @@ class CampaignReport
         return $enrollment->lessonProgress()
             ->orderBy('created_at')
             ->get()
-            ->map(fn (LessonProgress $lesson) => $this->presentLesson($lesson))
+            ->map(fn(LessonProgress $lesson) => $this->presentLesson($lesson))
             ->all();
+    }
+
+    /**
+     * Tracked items grouped into modules for the audit view. A narrated SCORM module reports
+     * one item per slide; listing them flat would bury everything else.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function moduleBreakdown(Enrollment $enrollment): array
+    {
+        $lessons = $this->lessonBreakdown($enrollment);
+
+        $verified = $this->completion->groupCompletions(array_map(
+            static fn(array $lesson): array => [
+                'group' => $lesson['group'],
+                'completion' => $lesson['verified_pct'],
+                'duration' => $lesson['duration'],
+            ],
+            $lessons,
+        ));
+
+        $modules = [];
+        foreach ($lessons as $lesson) {
+            $key = $lesson['group'];
+
+            $modules[$key] ??= [
+                'key' => $key,
+                'title' => $lesson['title'],
+                'url' => $lesson['url'],
+                'verified_pct' => round($verified[$key] ?? 0.0, 1),
+                'completed' => true,
+                'items' => [],
+            ];
+
+            $modules[$key]['items'][] = $lesson;
+            $modules[$key]['completed'] = $modules[$key]['completed'] && $lesson['completed'];
+        }
+
+        return array_values($modules);
     }
 
     private function applyStatus(Builder $query, Campaign $campaign, string $status): Builder
@@ -120,6 +160,7 @@ class CampaignReport
 
         return [
             'id' => $lesson->id,
+            'group' => $lesson->lesson_group ?? $lesson->lesson_key,
             'title' => $lesson->lesson_title ?: $lesson->lesson_key,
             'url' => $url,
             'content_type' => $lesson->content_type,
@@ -128,11 +169,11 @@ class CampaignReport
             'duration' => $duration,
             'watched_seconds' => (float) $lesson->watched_seconds,
             'range_labels' => array_map(
-                static fn (array $r): string => Timecode::clock($r[0]).' – '.Timecode::clock($r[1]),
+                static fn(array $r): string => Timecode::clock($r[0]) . ' – ' . Timecode::clock($r[1]),
                 $ranges,
             ),
             'bars' => $duration > 0
-                ? array_map(static fn (array $r): array => [
+                ? array_map(static fn(array $r): array => [
                     'left' => round($r[0] / $duration * 100, 2),
                     'width' => max(0.4, round(($r[1] - $r[0]) / $duration * 100, 2)),
                 ], $ranges)

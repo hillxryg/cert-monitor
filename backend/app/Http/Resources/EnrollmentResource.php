@@ -27,6 +27,7 @@ class EnrollmentResource extends JsonResource
                     'required_completion_percent' => (int) $campaign->required_completion_percent,
                     'min_integrity_score' => (int) $campaign->min_integrity_score,
                     'heartbeat_interval_seconds' => (int) config('integrity.heartbeat_interval'),
+                    'idle_timeout_seconds' => (int) config('integrity.idle_timeout_seconds'),
                 ],
             ],
         ];

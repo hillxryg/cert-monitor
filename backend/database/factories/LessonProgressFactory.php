@@ -14,11 +14,12 @@ class LessonProgressFactory extends Factory
 
     public function definition(): array
     {
-        $key = 'lesson-'.Str::lower(Str::random(8));
+        $key = 'lesson-' . Str::lower(Str::random(8));
 
         return [
             'enrollment_id' => Enrollment::factory(),
             'lesson_key' => $key,
+            'lesson_group' => null,
             'lesson_title' => fake()->sentence(3),
             'lesson_url' => "https://learn.example.com/{$key}",
             'content_type' => 'video',

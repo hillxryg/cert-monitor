@@ -4,6 +4,10 @@ return [
     // Expected client heartbeat cadence (seconds).
     'heartbeat_interval' => 15,
 
+    // Reading lessons: seconds without a trusted click, key press or scroll before the client
+    // reports the student as idle. Sent to the extension as part of the campaign rules.
+    'idle_timeout_seconds' => 180,
+
     // Slack for network jitter / timer drift (seconds).
     'timing_tolerance' => 2.0,
 

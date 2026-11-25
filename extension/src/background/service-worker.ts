@@ -6,7 +6,7 @@
  * are all in chrome.storage.local, and retries are driven by chrome.alarms.
  */
 import { firstErrorMessage, tryRequest } from '../shared/api';
-import { DEFAULT_HEARTBEAT_INTERVAL_SECONDS, FLUSH_ALARM } from '../shared/config';
+import { DEFAULT_HEARTBEAT_INTERVAL_SECONDS, DEFAULT_IDLE_TIMEOUT_SECONDS, FLUSH_ALARM } from '../shared/config';
 import { buildLessonIdentity } from '../shared/lesson';
 import { clamp, round2 } from '../shared/num';
 import { getItem, setItem, updateItem } from '../shared/storage';
@@ -69,7 +69,7 @@ async function handleMessage(message: RuntimeMessage, sender: chrome.runtime.Mes
   try {
     switch (message.type) {
       case 'GET_PAGE_CONTEXT':
-        return fromContentScript ? await getPageContext(sender) : { active: false, interval_seconds: DEFAULT_HEARTBEAT_INTERVAL_SECONDS };
+        return fromContentScript ? await getPageContext(sender) : inactiveContext();
       case 'HEARTBEAT':
         return fromContentScript ? await handleHeartbeat(message.telemetry, sender) : dropped('not_from_tab');
       case 'LOGIN':
@@ -96,8 +96,14 @@ async function campaignsFor(auth: AuthState): Promise<EnrolledCampaign[]> {
   return enrollments[String(auth.user.id)] ?? [];
 }
 
+const inactiveContext = (): PageContext => ({
+  active: false,
+  interval_seconds: DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+  idle_timeout_seconds: DEFAULT_IDLE_TIMEOUT_SECONDS,
+});
+
 async function getPageContext(sender: chrome.runtime.MessageSender): Promise<PageContext> {
-  const inactive: PageContext = { active: false, interval_seconds: DEFAULT_HEARTBEAT_INTERVAL_SECONDS };
+  const inactive = inactiveContext();
 
   // Matched against the TAB's URL, so frames (embedded players) follow the lesson page.
   const tabUrl = sender.tab?.url;
@@ -107,7 +113,11 @@ async function getPageContext(sender: chrome.runtime.MessageSender): Promise<Pag
   const campaign = findMatchingCampaign(await campaignsFor(auth), tabUrl);
   if (!campaign) return inactive;
 
-  return { active: true, interval_seconds: campaign.rules.heartbeat_interval_seconds || DEFAULT_HEARTBEAT_INTERVAL_SECONDS };
+  return {
+    active: true,
+    interval_seconds: campaign.rules.heartbeat_interval_seconds || DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+    idle_timeout_seconds: campaign.rules.idle_timeout_seconds || DEFAULT_IDLE_TIMEOUT_SECONDS,
+  };
 }
 
 async function handleHeartbeat(telemetry: Telemetry, sender: chrome.runtime.MessageSender): Promise<HeartbeatAck> {
@@ -125,7 +135,7 @@ async function handleHeartbeat(telemetry: Telemetry, sender: chrome.runtime.Mess
     frameId: sender.frameId ?? 0,
     frameUrl: sender.url,
     kind: telemetry.kind,
-    videoIndex: telemetry.kind === 'video' ? telemetry.video_index : 0,
+    mediaId: telemetry.kind === 'media' ? telemetry.media_id : null,
   });
   if (!identity) return dropped('bad_url');
 
@@ -135,6 +145,7 @@ async function handleHeartbeat(telemetry: Telemetry, sender: chrome.runtime.Mess
     campaign_id: campaign.campaign_id,
     client_timestamp: Math.trunc(telemetry.client_timestamp),
     lesson_key: identity.key,
+    lesson_group: identity.group,
     lesson_title: title === '' ? null : title,
     lesson_url: identity.url,
     tab_focused: Boolean(telemetry.is_focused),
@@ -142,8 +153,9 @@ async function handleHeartbeat(telemetry: Telemetry, sender: chrome.runtime.Mess
   };
 
   // Map the content script's telemetry onto the Laravel HeartbeatRequest field names.
+  // Both <video> and <audio> (e.g. narrated SCORM slides) are timed media, which the API calls "video".
   const payload: HeartbeatPayload =
-    telemetry.kind === 'video'
+    telemetry.kind === 'media'
       ? {
           ...common,
           content_type: 'video',
@@ -153,12 +165,13 @@ async function handleHeartbeat(telemetry: Telemetry, sender: chrome.runtime.Mess
           duration: round2(telemetry.total_duration),
           playback_rate: clamp(telemetry.playback_rate, 0.0625, 16),
           muted: Boolean(telemetry.is_muted),
-          is_playing: true, // a video segment is only ever reported for time it was playing
+          is_playing: true, // a media segment is only ever reported for time it was playing
         }
       : {
           ...common,
           content_type: 'reading',
           scroll_percent: Math.round(clamp(telemetry.scroll_percent, 0, 100)),
+          idle: Boolean(telemetry.is_idle),
         };
 
   await enqueueHeartbeat({

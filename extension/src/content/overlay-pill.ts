@@ -6,6 +6,7 @@ export interface PillView {
 }
 
 const HOST_ID = 'cert-monitor-pill-host';
+const REPLACED_ELEMENTS = new Set(['VIDEO', 'AUDIO', 'IFRAME', 'FRAME', 'EMBED', 'OBJECT', 'CANVAS', 'IMG']);
 
 // All styling lives inside the shadow root so the host page's CSS can't touch the pill,
 // and the pill's CSS can't leak into the page.
@@ -87,11 +88,16 @@ export class OverlayPill {
     this.label = null;
   }
 
-  /** Only the fullscreen element's subtree is drawn, so move the pill into it. */
+  /**
+   * While something is fullscreen only its subtree is drawn, so move the pill into it, but only
+   * if it can have visible children. Replaced elements (<video>, <iframe>, ...) can't: when a
+   * slide frame goes fullscreen the browser hides the rest of the top document, and no script
+   * can draw above it, so the pill stays in the page and reappears on exit.
+   */
   private readonly onFullscreenChange = (): void => {
     if (!this.host) return;
     const fullscreen = document.fullscreenElement;
-    const parent = fullscreen && fullscreen.tagName !== 'VIDEO' ? fullscreen : document.documentElement;
-    parent.appendChild(this.host);
+    const canHostChildren = fullscreen !== null && !REPLACED_ELEMENTS.has(fullscreen.tagName);
+    (canHostChildren ? fullscreen : document.documentElement).appendChild(this.host);
   };
 }

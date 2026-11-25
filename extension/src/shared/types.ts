@@ -18,6 +18,8 @@ export interface CampaignRules {
   required_completion_percent: number;
   min_integrity_score: number;
   heartbeat_interval_seconds: number;
+  /** Absent in enrollments cached by an older extension version. */
+  idle_timeout_seconds?: number;
 }
 
 export type EnrollmentState = 'active' | 'closed' | 'not_enrolled';
@@ -76,6 +78,8 @@ interface HeartbeatCommon {
   campaign_id: number;
   client_timestamp: number;
   lesson_key: string;
+  /** Module this item belongs to (the lesson page). */
+  lesson_group: string | null;
   lesson_title: string | null;
   lesson_url: string | null;
   tab_focused: boolean;
@@ -96,6 +100,7 @@ export interface VideoHeartbeatPayload extends HeartbeatCommon {
 export interface ReadingHeartbeatPayload extends HeartbeatCommon {
   content_type: 'reading';
   scroll_percent: number;
+  idle: boolean;
 }
 
 export type HeartbeatPayload = VideoHeartbeatPayload | ReadingHeartbeatPayload;
@@ -127,23 +132,27 @@ interface TelemetryBase {
   is_visible: boolean;
 }
 
-export interface VideoTelemetry extends TelemetryBase {
-  kind: 'video';
+/** A stretch of <video> or <audio> playback (e.g. a narrated SCORM slide). */
+export interface MediaTelemetry extends TelemetryBase {
+  kind: 'media';
+  media: 'video' | 'audio';
+  /** Stable id of this media item within the page, so each slide keeps its own timeline. */
+  media_id: string;
   segment_start: number;
   segment_end: number;
   total_duration: number;
   playback_rate: number;
   is_muted: boolean;
-  /** Position of the <video> among the frame's videos, to tell several players apart. */
-  video_index: number;
 }
 
 export interface ReadingTelemetry extends TelemetryBase {
   kind: 'reading';
   scroll_percent: number;
+  /** No trusted click, key press or scroll for the idle timeout. */
+  is_idle: boolean;
 }
 
-export type Telemetry = VideoTelemetry | ReadingTelemetry;
+export type Telemetry = MediaTelemetry | ReadingTelemetry;
 
 export type ContentMessage =
   | { type: 'GET_PAGE_CONTEXT' }
@@ -152,6 +161,7 @@ export type ContentMessage =
 export interface PageContext {
   active: boolean;
   interval_seconds: number;
+  idle_timeout_seconds: number;
 }
 
 export interface HeartbeatAck {
